@@ -1,0 +1,3 @@
+# Ignore everything inside datasets directory
+datasets/
+runSimulation.sbatch
