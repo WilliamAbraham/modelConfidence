@@ -1,3 +1,6 @@
 # Ignore everything inside datasets directory
 datasets/
 runSimulation.sbatch
+__pycache__/
+*.out
+.DS_Store
