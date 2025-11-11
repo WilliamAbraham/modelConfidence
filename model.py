@@ -5,14 +5,21 @@ import math
 
 class CNN(nn.Module):
     """Simple CNN baseline model"""
-    def __init__(self, input_channels=1, output_channels=10):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
         super(CNN, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
         self.conv1 = nn.Conv2d(input_channels, 8, kernel_size=3, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(8)
+        self.bn1 = self._make_norm_layer(8)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(16)
+        self.bn2 = self._make_norm_layer(16)
         self.fc1 = nn.Linear(16*7*7, output_channels)
+
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
@@ -25,8 +32,12 @@ class CNN(nn.Module):
 
 class MLP(nn.Module):
     """Multi-Layer Perceptron (Fully Connected Network)"""
-    def __init__(self, input_channels=1, output_channels=10, hidden_sizes=[512, 256], dropout=0.2):
+    def __init__(self, input_channels=1, output_channels=10, hidden_sizes=[512, 256], dropout=0.2, norm_layer=None):
         super(MLP, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm1d
+        self._norm_layer = norm_layer
+
         input_size = 28 * 28 * input_channels  # MNIST is 28x28
         layers = []
         prev_size = input_size
@@ -34,7 +45,7 @@ class MLP(nn.Module):
         for hidden_size in hidden_sizes:
             layers.extend([
                 nn.Linear(prev_size, hidden_size, bias=False),
-                nn.BatchNorm1d(hidden_size),
+                self._make_norm_layer(hidden_size),
                 nn.ReLU(),
                 nn.Dropout(dropout)
             ])
@@ -43,23 +54,33 @@ class MLP(nn.Module):
         layers.append(nn.Linear(prev_size, output_channels))
         self.network = nn.Sequential(*layers)
 
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
+
     def forward(self, x):
         x = x.view(x.size(0), -1)  # Flatten
         return self.network(x)
 
 class LeNet5(nn.Module):
     """LeNet-5 architecture"""
-    def __init__(self, input_channels=1, output_channels=10):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
         super(LeNet5, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
         self.conv1 = nn.Conv2d(input_channels, 6, kernel_size=5, bias=False)
-        self.bn1 = nn.BatchNorm2d(6)
+        self.bn1 = self._make_norm_layer(6)
         self.conv2 = nn.Conv2d(6, 16, kernel_size=5, bias=False)
-        self.bn2 = nn.BatchNorm2d(16)
+        self.bn2 = self._make_norm_layer(16)
         self.fc1 = nn.Linear(16 * 4 * 4, 120, bias=False)
         self.bn3 = nn.BatchNorm1d(120)
         self.fc2 = nn.Linear(120, 84, bias=False)
         self.bn4 = nn.BatchNorm1d(84)
         self.fc3 = nn.Linear(84, output_channels)
+
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
@@ -74,18 +95,22 @@ class LeNet5(nn.Module):
 
 class ResNetBlock(nn.Module):
     """Residual block for ResNet"""
-    def __init__(self, in_channels, out_channels, stride=1):
+    def __init__(self, in_channels, out_channels, stride=1, norm_layer=None):
         super(ResNetBlock, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn1 = self._make_norm_layer(out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.bn2 = self._make_norm_layer(out_channels)
         
         self.shortcut = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels)
+                self._make_norm_layer(out_channels)
             )
 
     def forward(self, x):
@@ -95,12 +120,19 @@ class ResNetBlock(nn.Module):
         out = F.relu(out)
         return out
 
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
+
 class ResNet(nn.Module):
     """Lightweight ResNet for MNIST"""
-    def __init__(self, input_channels=1, output_channels=10):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
         super(ResNet, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
         self.conv1 = nn.Conv2d(input_channels, 8, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(8)
+        self.bn1 = self._make_norm_layer(8)
         
         self.layer1 = self._make_layer(8, 8, 1, stride=1)
         self.layer2 = self._make_layer(8, 16, 1, stride=2)
@@ -110,10 +142,13 @@ class ResNet(nn.Module):
 
     def _make_layer(self, in_channels, out_channels, blocks, stride):
         layers = []
-        layers.append(ResNetBlock(in_channels, out_channels, stride))
+        layers.append(ResNetBlock(in_channels, out_channels, stride, norm_layer=self._norm_layer))
         for _ in range(1, blocks):
-            layers.append(ResNetBlock(out_channels, out_channels))
+            layers.append(ResNetBlock(out_channels, out_channels, norm_layer=self._norm_layer))
         return nn.Sequential(*layers)
+
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
@@ -126,33 +161,37 @@ class ResNet(nn.Module):
 
 class VGG(nn.Module):
     """VGG-style network for MNIST"""
-    def __init__(self, input_channels=1, output_channels=10):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
         super(VGG, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
         self.features = nn.Sequential(
             # Block 1
             nn.Conv2d(input_channels, 32, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(32),
+            self._make_norm_layer(32),
             nn.ReLU(inplace=True),
             nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(32),
+            self._make_norm_layer(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
             
             # Block 2
             nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(64),
+            self._make_norm_layer(64),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(64),
+            self._make_norm_layer(64),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
             
             # Block 3
             nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
+            self._make_norm_layer(128),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
+            self._make_norm_layer(128),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
@@ -169,6 +208,9 @@ class VGG(nn.Module):
             nn.Linear(256, output_channels),
         )
 
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
+
     def forward(self, x):
         x = self.features(x)
         x = x.view(x.size(0), -1)
@@ -177,11 +219,15 @@ class VGG(nn.Module):
 
 class DenseNetBlock(nn.Module):
     """DenseNet block"""
-    def __init__(self, in_channels, growth_rate):
+    def __init__(self, in_channels, growth_rate, norm_layer=None):
         super(DenseNetBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_channels)
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
+        self.bn1 = self._make_norm_layer(in_channels)
         self.conv1 = nn.Conv2d(in_channels, 4 * growth_rate, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(4 * growth_rate)
+        self.bn2 = self._make_norm_layer(4 * growth_rate)
         self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
@@ -189,10 +235,17 @@ class DenseNetBlock(nn.Module):
         out = self.conv2(F.relu(self.bn2(out)))
         return torch.cat([x, out], 1)
 
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
+
 class DenseNet(nn.Module):
     """DenseNet for MNIST"""
-    def __init__(self, input_channels=1, output_channels=10, growth_rate=12, num_blocks=4):
+    def __init__(self, input_channels=1, output_channels=10, growth_rate=12, num_blocks=4, norm_layer=None):
         super(DenseNet, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
         self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=3, padding=1, bias=False)
         
         # Dense blocks
@@ -209,19 +262,19 @@ class DenseNet(nn.Module):
         self.dense3 = self._make_dense_block(in_channels, growth_rate, num_blocks)
         in_channels = in_channels + growth_rate * num_blocks
         
-        self.bn = nn.BatchNorm2d(in_channels)
+        self.bn = self._make_norm_layer(in_channels)
         self.fc = nn.Linear(in_channels, output_channels)
 
     def _make_dense_block(self, in_channels, growth_rate, num_blocks):
         layers = []
         for _ in range(num_blocks):
-            layers.append(DenseNetBlock(in_channels, growth_rate))
+            layers.append(DenseNetBlock(in_channels, growth_rate, norm_layer=self._norm_layer))
             in_channels += growth_rate
         return nn.Sequential(*layers)
 
     def _make_transition(self, in_channels, out_channels):
         return nn.Sequential(
-            nn.BatchNorm2d(in_channels),
+            self._make_norm_layer(in_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
             nn.AvgPool2d(kernel_size=2, stride=2)
@@ -238,14 +291,21 @@ class DenseNet(nn.Module):
         x = self.fc(x)
         return x
 
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
+
 class EfficientNet(nn.Module):
     """Lightweight EfficientNet for MNIST"""
-    def __init__(self, input_channels=1, output_channels=10):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
         super(EfficientNet, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
         # Stem
         self.stem = nn.Sequential(
             nn.Conv2d(input_channels, 16, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(16),
+            self._make_norm_layer(16),
             nn.ReLU(inplace=True)
         )
         
@@ -270,7 +330,7 @@ class EfficientNet(nn.Module):
         if expand_ratio != 1:
             layers.extend([
                 nn.Conv2d(in_channels, expanded_channels, 1, bias=False),
-                nn.BatchNorm2d(expanded_channels),
+                self._make_norm_layer(expanded_channels),
                 nn.SiLU(inplace=True)
             ])
         
@@ -278,18 +338,20 @@ class EfficientNet(nn.Module):
         layers.extend([
             nn.Conv2d(expanded_channels, expanded_channels, 3, stride, 1, 
                      groups=expanded_channels, bias=False),
-            nn.BatchNorm2d(expanded_channels),
+            self._make_norm_layer(expanded_channels),
             nn.SiLU(inplace=True)
         ])
         
         # Projection
         layers.extend([
             nn.Conv2d(expanded_channels, out_channels, 1, bias=False),
-            nn.BatchNorm2d(out_channels)
+            self._make_norm_layer(out_channels)
         ])
         
         return nn.Sequential(*layers)
 
+    def _make_norm_layer(self, num_features):
+        return self._norm_layer(num_features)
     def forward(self, x):
         x = self.stem(x)
         x = self.blocks(x)
@@ -299,8 +361,12 @@ class EfficientNet(nn.Module):
 class Transformer(nn.Module):
     """Lightweight Vision Transformer for MNIST"""
     def __init__(self, input_channels=1, output_channels=10, patch_size=7, 
-                 embed_dim=64, num_heads=4, num_layers=2, mlp_ratio=2):
+                 embed_dim=64, num_heads=4, num_layers=2, mlp_ratio=2, norm_layer=None):
         super(Transformer, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.LayerNorm
+        self._norm_layer = norm_layer
+
         self.patch_size = patch_size
         self.embed_dim = embed_dim
         self.num_patches = (28 // patch_size) ** 2
@@ -326,7 +392,7 @@ class Transformer(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
         # Classification head
-        self.norm = nn.LayerNorm(embed_dim)
+        self.norm = self._make_norm_layer(embed_dim)
         self.head = nn.Linear(embed_dim, output_channels)
         
         # Initialize weights
@@ -355,6 +421,9 @@ class Transformer(nn.Module):
         cls_output = x[:, 0]  # Take class token
         return self.head(cls_output)
 
+    def _make_norm_layer(self, normalized_shape):
+        return self._norm_layer(normalized_shape)
+
 # Model registry for easy access
 MODELS = {
     'cnn': CNN,
@@ -368,7 +437,10 @@ MODELS = {
 }
 
 def get_model(model_name, input_channels=1, output_channels=10, **kwargs):
-    """Get model by name with specified parameters"""
+    """Get model by name with specified parameters.
+
+    Additional keyword arguments like `norm_layer` are forwarded to the model constructor.
+    """
     if model_name not in MODELS:
         raise ValueError(f"Model {model_name} not found. Available models: {list(MODELS.keys())}")
     
