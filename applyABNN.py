@@ -10,7 +10,8 @@ from ABNN.test_and_eval import test_model_with_metrics
 from model import get_model
 
 batch_size = 64
-num_workers = 4
+num_workers = 1
+epochs = 200
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
@@ -48,8 +49,8 @@ train_losses, val_losses = train_model(
     model=mnist_cnn_bnl, 
     train_loader=trainloader, 
     val_loader=validloader,
-    epochs=1, 
-    learning_rate=0.1, 
+    epochs=epochs, 
+    learning_rate=0.001, 
     gamma_lr=0.2,
     milestones=[60, 120, 160], 
     save_path='modelsBNL/mnist_cnn_bnl.pth', 
