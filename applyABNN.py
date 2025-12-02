@@ -35,9 +35,9 @@ def create_data_loaders(batch_size=64, num_workers=1, random_seed=42):
         generator=torch.Generator().manual_seed(random_seed)
     )
 
-    trainloader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    validloader = DataLoader(valid_subset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    testloader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    trainloader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers) # 80%
+    validloader = DataLoader(valid_subset, batch_size=batch_size, shuffle=False, num_workers=num_workers) # 15%
+    testloader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, num_workers=num_workers) # 5%
     
     return trainloader, validloader, testloader
 
