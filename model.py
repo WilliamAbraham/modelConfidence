@@ -6,12 +6,12 @@ import numpy as np
 
 class EAFNO(nn.Module): ## epimesdic error awareness FNO
     #def __init__(self,batchsize,device, num_properties,input_dim, hidden_dim, latent_dim,im_x,im_y,modes1, modes2):
-    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None, image_size=(28, 28)):
         super(EAFNO, self).__init__()
-        self.modes1 = 28
-        self.modes2 = 15
-        self.im_x = 28
-        self.im_y = 28
+        self.im_x, self.im_y = image_size
+        # Adjust modes based on image size (keep similar ratio to original)
+        self.modes1 = min(self.im_x, 28)
+        self.modes2 = min(self.im_y // 2 + 1, 15)
         self.hidden_dim = 8
         self.epi_channels = 10
         self.output_channels = output_channels  # output channels for classification + epi error
@@ -53,7 +53,7 @@ class EAFNO(nn.Module): ## epimesdic error awareness FNO
 
 class EACNN(nn.Module):
     """Simple CNN baseline model"""
-    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None, image_size=(28, 28)):
         super(EACNN, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -67,10 +67,10 @@ class EACNN(nn.Module):
         self.fc1 = nn.Linear(16*7*7, output_channels)
 
         ### uncertainty block
-        self.modes1 = 14
-        self.modes2 = 8
-        self.im_x = 28
-        self.im_y = 28
+        self.im_x, self.im_y = image_size
+        # Adjust modes based on image size (keep similar ratio to original)
+        self.modes1 = min(self.im_x // 2, 14)
+        self.modes2 = min(self.im_y // 4 + 1, 8)
         self.epi_hidden_dim = 8
         self.epi_channels = 10
         self.output_channels = output_channels  # output channels for classification + epi error

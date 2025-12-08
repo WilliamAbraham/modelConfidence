@@ -15,7 +15,51 @@ lr = 1e-3
 log_interval = 10
 epochs = 500
 batch_size = 64
-data_root = '/scratch/jc14407/datasets' 
+data_root = '/scratch/jc14407/datasets'
+
+def get_dataset_config(dataset_name):
+    """
+    Get configuration for different torchvision datasets.
+    
+    Args:
+        dataset_name: Name of the dataset (e.g., 'MNIST', 'CIFAR10', 'CIFAR100')
+    
+    Returns:
+        dict with keys: input_channels, num_classes, image_size, dataset_class
+    """
+    dataset_name = dataset_name.upper()
+    
+    configs = {
+        'MNIST': {
+            'input_channels': 1,
+            'num_classes': 10,
+            'image_size': (28, 28),
+            'dataset_class': datasets.MNIST
+        },
+        'CIFAR10': {
+            'input_channels': 3,
+            'num_classes': 10,
+            'image_size': (32, 32),
+            'dataset_class': datasets.CIFAR10
+        },
+        'CIFAR100': {
+            'input_channels': 3,
+            'num_classes': 100,
+            'image_size': (32, 32),
+            'dataset_class': datasets.CIFAR100
+        },
+        'FASHIONMNIST': {
+            'input_channels': 1,
+            'num_classes': 10,
+            'image_size': (28, 28),
+            'dataset_class': datasets.FashionMNIST
+        }
+    }
+    
+    if dataset_name not in configs:
+        raise ValueError(f"Dataset {dataset_name} not supported. Available: {list(configs.keys())}")
+    
+    return configs[dataset_name] 
 
 def train(model, device, train_loader, optimizer, epoch, verbose=True):
     model.train()
@@ -69,24 +113,46 @@ def test(model, device, test_loader, verbose=True):
     
     return total_class_loss, accuracy, total_epi_error
 
-def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64, save_results=False):
-    """Benchmark a single model with fixed number of epochs"""
+def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64, save_results=False, dataset='MNIST', file_path):
+    """Benchmark a single model with fixed number of epochs
+    
+    Args:
+        model_name: Name of the model to benchmark
+        device: Device to use ('cpu' or 'cuda')
+        epochs: Number of training epochs
+        lr: Learning rate
+        batch_size: Batch size for training
+        save_results: Whether to save results to JSON
+        dataset: Dataset name (default: 'MNIST'). Must be a torchvision dataset.
+                 Supported: 'MNIST', 'CIFAR10', 'CIFAR100', 'FashionMNIST'
+    """
     print(f"\n{'='*50}")
-    print(f"Benchmarking {model_name.upper()}")
+    print(f"Benchmarking {model_name.upper()} on {dataset.upper()}")
     print(f"{'='*50}")
     
+    # Get dataset configuration
+    dataset_config = get_dataset_config(dataset)
+    dataset_class = dataset_config['dataset_class']
+    input_channels = dataset_config['input_channels']
+    num_classes = dataset_config['num_classes']
+    image_size = dataset_config['image_size']
+    
     # Load data
-    train_dataset = datasets.MNIST(root = data_root, train=True, download=True,
+    train_dataset = dataset_class(root=data_root, train=True, download=True,
                                   transform=transforms.ToTensor())
     train_dataset = torch.utils.data.Subset(train_dataset, range(100))  # Use a subset for faster benchmarking
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
-    test_dataset = datasets.MNIST(root =data_root, train=False, transform=transforms.ToTensor())
+    test_dataset = dataset_class(root=data_root, train=False, transform=transforms.ToTensor())
     #test_dataset = torch.utils.data.Subset(test_dataset, range(1024))  # Use a subset for faster benchmarking
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
-    # Create model
-    model = get_model(model_name, input_channels=1, output_channels=10).to(device)
+    # Create model - pass image_size for EAFNO/EACNN models
+    model_kwargs = {}
+    if model_name in ['eafno', 'eacnn']:
+        model_kwargs['image_size'] = image_size
+    
+    model = get_model(model_name, input_channels=input_channels, output_channels=num_classes, **model_kwargs).to(device)
     optimizer = Adam(model.parameters(), lr=lr)
     
     print(f"Model: {model_name}")
@@ -124,13 +190,12 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     print(f"Time per Epoch: {total_time/epochs:.2f}s")
     
     # Save model
-    models_dir = Path("/scratch/jc14407/modelConfidence/checkpoints")
+    #models_dir = Path("/scratch/jc14407/modelConfidence/checkpoints")
+    models_dir = file_path
     if not os.path.exists(models_dir):
         os.makedirs(models_dir)
-    # models_dir.mkdir(exist_ok=True)
-    #model_path = models_dir / f"mnist_{model_name}.pth"
-    #model_path = os.path.join(models_dir, f"mnist_{model_name}.pth")
-    model_path = os.path.join(models_dir, "mnist_"+model_name+".pth")
+    # Include dataset name in model path
+    model_path = os.path.join(models_dir, f"{dataset.lower()}_{model_name}.pth")
     torch.save(model.state_dict(), model_path)
     print(f"Model saved to: {model_path}")
     # torch.save(model, model_path)
@@ -138,6 +203,7 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     # Prepare results
     results = {
         'model_name': model_name,
+        'dataset': dataset,
         'parameters': sum(p.numel() for p in model.parameters()),
         'epochs': epochs,
         'learning_rate': lr,
@@ -155,28 +221,37 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     if save_results:
         results_dir = Path("results")
         results_dir.mkdir(exist_ok=True)
-        results_path = results_dir / f"results_{model_name}.json"
+        results_path = results_dir / f"results_{dataset.lower()}_{model_name}.json"
         with open(results_path, 'w') as f:
             json.dump(results, f, indent=2)
         print(f"Results saved to: {results_path}")
     
     return results
 
-def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64):
-    """Benchmark all available models with fixed number of epochs"""
-    print("MNIST Model Benchmarking")
+def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64, dataset='MNIST', file_path):
+    """Benchmark all available models with fixed number of epochs
+    
+    Args:
+        device: Device to use ('cpu' or 'cuda')
+        epochs: Number of training epochs per model
+        lr: Learning rate
+        batch_size: Batch size for training
+        dataset: Dataset name (default: 'MNIST')
+    """
+    print(f"{dataset.upper()} Model Benchmarking")
     print("=" * 50)
     print(f"Device: {device}")
     print(f"Epochs per model: {epochs}")
     print(f"Learning Rate: {lr}")
     print(f"Batch Size: {batch_size}")
+    print(f"Dataset: {dataset}")
     print(f"Available Models: {list(MODELS.keys())}")
     
     all_results = {}
     
     for model_name in MODELS.keys():
         try:
-            results = benchmark_model(model_name, device, epochs, lr, batch_size)
+            results = benchmark_model(model_name, device, epochs, lr, batch_size, save_results=False, dataset=dataset, file_path=file_path)
             all_results[model_name] = results
         except Exception as e:
             print(f"Error benchmarking {model_name}: {e}")
@@ -206,9 +281,11 @@ def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64):
     return all_results
 
 # Global configuration variables - modify these as needed
-model = 'eacnn'  # Model to benchmark: 'all' or one of ['cnn', 'mlp', 'lenet5', 'resnet', 'vgg', 'densenet', 'efficientnet', 'transformer','eafno']
+model = 'eacnn'  # Model to benchmark: 'all' or one of ['cnn', 'mlp', 'lenet5', 'resnet', 'vgg', 'densenet', 'efficientnet', 'transformer','eafno', 'eacnn']
 device = 'cuda'  # Device to use: 'cpu' or 'cuda'
+file_path = '/scratch/wja6857/modelConfidence/checkpoints'
 # Note: epochs is already defined above in the default hyperparameters section
+# Note: dataset can be changed in the main() function below (default: 'MNIST', also supports 'CIFAR10', 'CIFAR100', 'FashionMNIST')
 
 def main():
     # Check device availability
@@ -218,10 +295,13 @@ def main():
     else:
         actual_device = device
     
+    # Default dataset - can be changed here or passed as parameter
+    dataset = 'CIFAR10'
+    
     if model == 'all':
-        benchmark_all_models(actual_device, epochs, lr, batch_size)
+        benchmark_all_models(actual_device, epochs, lr, batch_size, dataset=dataset, file_path=file_path)
     else:
-        benchmark_model(model, actual_device, epochs, lr, batch_size)
+        benchmark_model(model, actual_device, epochs, lr, batch_size, dataset=dataset, file_path=file_path)
 
 if __name__ == '__main__':
     main()
