@@ -11,11 +11,12 @@ import os
 from model import get_model, MODELS
 
 # Default hyperparameters
+scratch_root = '/scratch/wja6857'  # Base scratch directory
 lr = 1e-3
 log_interval = 10
-epochs = 500
+epochs = 100
 batch_size = 64
-data_root = '/scratch/jc14407/datasets'
+data_root = f'{scratch_root}/datasets'
 
 def get_dataset_config(dataset_name):
     """
@@ -113,7 +114,7 @@ def test(model, device, test_loader, verbose=True):
     
     return total_class_loss, accuracy, total_epi_error
 
-def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64, save_results=False, dataset='MNIST', file_path):
+def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64, save_results=False, dataset='MNIST', file_path='models'):
     """Benchmark a single model with fixed number of epochs
     
     Args:
@@ -140,7 +141,7 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     # Load data
     train_dataset = dataset_class(root=data_root, train=True, download=True,
                                   transform=transforms.ToTensor())
-    train_dataset = torch.utils.data.Subset(train_dataset, range(100))  # Use a subset for faster benchmarking
+    # train_dataset = torch.utils.data.Subset(train_dataset, range(10000))  # Use a subset for faster benchmarking
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     
     test_dataset = dataset_class(root=data_root, train=False, transform=transforms.ToTensor())
@@ -151,6 +152,7 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     model_kwargs = {}
     if model_name in ['eafno', 'eacnn']:
         model_kwargs['image_size'] = image_size
+        print("image_size: ", model_kwargs['image_size'])
     
     model = get_model(model_name, input_channels=input_channels, output_channels=num_classes, **model_kwargs).to(device)
     optimizer = Adam(model.parameters(), lr=lr)
@@ -219,8 +221,8 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     }
     
     if save_results:
-        results_dir = Path("results")
-        results_dir.mkdir(exist_ok=True)
+        results_dir = Path(f"{scratch_root}/modelConfidence/results")
+        results_dir.mkdir(parents=True, exist_ok=True)
         results_path = results_dir / f"results_{dataset.lower()}_{model_name}.json"
         with open(results_path, 'w') as f:
             json.dump(results, f, indent=2)
@@ -228,7 +230,7 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     
     return results
 
-def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64, dataset='MNIST', file_path):
+def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64, dataset='MNIST', file_path='models'):
     """Benchmark all available models with fixed number of epochs
     
     Args:
@@ -271,9 +273,9 @@ def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64, datase
             print(f"{model_name:<15} {'ERROR':<12} {'N/A':<10} {'N/A':<10}")
     
     # Save summary
-    results_dir = Path("results")
-    results_dir.mkdir(exist_ok=True)
-    summary_path = results_dir / "benchmark_summary.json"
+    results_dir = Path(f"{scratch_root}/modelConfidence/results")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = results_dir / f"benchmark_summary_{dataset.lower()}.json"
     with open(summary_path, 'w') as f:
         json.dump(all_results, f, indent=2)
     print(f"\nSummary saved to: {summary_path}")
@@ -283,7 +285,7 @@ def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64, datase
 # Global configuration variables - modify these as needed
 model = 'eacnn'  # Model to benchmark: 'all' or one of ['cnn', 'mlp', 'lenet5', 'resnet', 'vgg', 'densenet', 'efficientnet', 'transformer','eafno', 'eacnn']
 device = 'cuda'  # Device to use: 'cpu' or 'cuda'
-file_path = '/scratch/wja6857/modelConfidence/checkpoints'
+file_path = f'{scratch_root}/modelConfidence/checkpoints'  # Model checkpoint save path
 # Note: epochs is already defined above in the default hyperparameters section
 # Note: dataset can be changed in the main() function below (default: 'MNIST', also supports 'CIFAR10', 'CIFAR100', 'FashionMNIST')
 
@@ -301,7 +303,7 @@ def main():
     if model == 'all':
         benchmark_all_models(actual_device, epochs, lr, batch_size, dataset=dataset, file_path=file_path)
     else:
-        benchmark_model(model, actual_device, epochs, lr, batch_size, dataset=dataset, file_path=file_path)
+        benchmark_model(model, actual_device, epochs, lr, batch_size, save_results=True, dataset=dataset, file_path=file_path)
 
 if __name__ == '__main__':
     main()

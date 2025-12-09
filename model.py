@@ -59,15 +59,21 @@ class EACNN(nn.Module):
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
 
+        self.im_x, self.im_y = image_size
+        feature_h = self.im_x // 4
+        feature_w = self.im_y // 4
+        # Multiply by 16 (number of channels from conv2)
+        feature_size = 16 * feature_h * feature_w
+
         self.conv1 = nn.Conv2d(input_channels, 8, kernel_size=3, padding=1, bias=False)
         self.bn1 = self._make_norm_layer(8)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1, bias=False)
         self.bn2 = self._make_norm_layer(16)
-        self.fc1 = nn.Linear(16*7*7, output_channels)
+        self.fc1 = nn.Linear(feature_size, output_channels)
 
         ### uncertainty block
-        self.im_x, self.im_y = image_size
+        
         # Adjust modes based on image size (keep similar ratio to original)
         self.modes1 = min(self.im_x // 2, 14)
         self.modes2 = min(self.im_y // 4 + 1, 8)
@@ -89,7 +95,13 @@ class EACNN(nn.Module):
         return self._norm_layer(num_features)
 
     def uncertainty_forward(self, x,mid_value):
-        x = x.view(-1,self.im_x,self.im_y,1)
+        # x = x.view(-1,self.im_x,self.im_y,1)
+        if x.shape[1] > 1:
+            x = x.mean(dim=1, keepdim=True)  # (batch_size, 1, height, width)
+    
+        # Now reshape to (batch_size, height, width, 1)
+        x = x.squeeze(1)  # Remove channel dim: (batch_size, height, width)
+        x = x.view(-1, self.im_x, self.im_y, 1)  # (batch_size, height, width, 1)
         grid = _get_grid(x.shape, x.device)
         x = torch.cat((x, grid), dim=-1)
         x = self.activation_function(self.epi_p(x))
