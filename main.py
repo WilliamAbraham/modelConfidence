@@ -14,7 +14,7 @@ from model import get_model, MODELS
 scratch_root = '/scratch/wja6857'  # Base scratch directory
 lr = 1e-3
 log_interval = 10
-epochs = 100
+epochs = 50
 batch_size = 64
 data_root = f'{scratch_root}/datasets'
 
@@ -150,7 +150,7 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     
     # Create model - pass image_size for EAFNO/EACNN models
     model_kwargs = {}
-    if model_name in ['eafno', 'eacnn']:
+    if model_name in ['eafno', 'eacnn', 'cnn']:
         model_kwargs['image_size'] = image_size
         print("image_size: ", model_kwargs['image_size'])
     

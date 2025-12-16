@@ -58,6 +58,7 @@ class EACNN(nn.Module):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
+        
 
         self.im_x, self.im_y = image_size
         feature_h = self.im_x // 4
@@ -81,7 +82,10 @@ class EACNN(nn.Module):
         self.epi_channels = 10
         self.output_channels = output_channels  # output channels for classification + epi error
         self.activation_function = nn.LeakyReLU(0.2)
-        self.epi_p = nn.Linear(3, self.epi_hidden_dim) # input channel is 3: (a(x, y), x, y)
+
+        self.inputs = input_channels + 2
+
+        self.epi_p = nn.Linear(self.inputs, self.epi_hidden_dim) # input channel is 3: (a(x, y), x, y) = (pixel, x_coord, y_coord)
         self.epi_conv0 = SpectralConv2d(self.epi_hidden_dim, self.epi_hidden_dim, self.modes1, self.modes2)
         self.epi_conv1 = SpectralConv2d(self.epi_hidden_dim, self.epi_channels, self.modes1, self.modes2)
         self.epi_mlp0 = FNO_MLP(self.epi_hidden_dim, self.epi_hidden_dim, self.epi_hidden_dim)
@@ -95,13 +99,10 @@ class EACNN(nn.Module):
         return self._norm_layer(num_features)
 
     def uncertainty_forward(self, x,mid_value):
-        # x = x.view(-1,self.im_x,self.im_y,1)
-        if x.shape[1] > 1:
-            x = x.mean(dim=1, keepdim=True)  # (batch_size, 1, height, width)
-    
-        # Now reshape to (batch_size, height, width, 1)
-        x = x.squeeze(1)  # Remove channel dim: (batch_size, height, width)
-        x = x.view(-1, self.im_x, self.im_y, 1)  # (batch_size, height, width, 1)
+        # Keep all channels (works for both grayscale and RGB)
+        # x shape: (batch_size, channels, height, width)
+        # Permute to (batch_size, height, width, channels)
+        x = x.permute(0, 2, 3, 1)  # (batch_size, height, width, channels)
         grid = _get_grid(x.shape, x.device)
         x = torch.cat((x, grid), dim=-1)
         x = self.activation_function(self.epi_p(x))
@@ -257,18 +258,27 @@ class LocalMLP(nn.Module):
 
 class CNN(nn.Module):
     """Simple CNN baseline model"""
-    def __init__(self, input_channels=1, output_channels=10, norm_layer=None):
+    def __init__(self, input_channels=1, output_channels=10, norm_layer=None, image_size=(28, 28), RGB=False):
         super(CNN, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
+
+        self.im_x, self.im_y = image_size
+        feature_h = self.im_x // 4
+        feature_w = self.im_y // 4
+        # Multiply by 16 (number of channels from conv2)
+        feature_size = 16 * feature_h * feature_w
+
+        if RGB:
+            input_channels = 3
 
         self.conv1 = nn.Conv2d(input_channels, 8, kernel_size=3, padding=1, bias=False)
         self.bn1 = self._make_norm_layer(8)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1, bias=False)
         self.bn2 = self._make_norm_layer(16)
-        self.fc1 = nn.Linear(16*7*7, output_channels)
+        self.fc1 = nn.Linear(feature_size, output_channels)
 
     def _make_norm_layer(self, num_features):
         return self._norm_layer(num_features)
