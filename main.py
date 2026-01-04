@@ -298,7 +298,7 @@ def main():
         actual_device = device
     
     # Default dataset - can be changed here or passed as parameter
-    dataset = 'CIFAR10'
+    dataset = 'MNIST'
     
     if model == 'all':
         benchmark_all_models(actual_device, epochs, lr, batch_size, dataset=dataset, file_path=file_path)
