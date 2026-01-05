@@ -7,18 +7,54 @@ import time
 import json
 from pathlib import Path
 import os
+import os.path as osp
+import csv
 
 from model import get_model, MODELS
 
 # Default hyperparameters
-lr = 1e-3
+lr = 1e-4
 log_interval = 10
-epochs = 500
+epochs = 100
 batch_size = 64
 data_root = '/scratch/jc14407/datasets' 
 
-def train(model, device, train_loader, optimizer, epoch, verbose=True):
+class Logger(object):
+    def __init__(self, path, header):
+        self.log_file = open(path, 'a')
+        self.logger = csv.writer(self.log_file, delimiter='\t')
+
+        self.logger.writerow(header)
+        self.header = header
+
+    def __del(self):
+        self.log_file.close()
+
+    def log(self, values):
+        write_values = []
+        for col in self.header:
+            assert col in values
+            write_values.append(values[col])
+
+        self.logger.writerow(write_values)
+        self.log_file.flush()
+
+def train(train_stage, model, device, train_loader, epoch, verbose=True):
     model.train()
+    if train_stage ==1:
+        print("Stage one: training only classifier blocks")
+        for param in model.classifier.parameters():
+            param.requires_grad = True
+        for param in model.ea_block.parameters():
+            param.requires_grad = False
+    elif train_stage ==2:
+        print("Stage two: training only EA blocks")
+        for param in model.classifier.parameters():
+            param.requires_grad = False
+        for param in model.ea_block.parameters():
+            param.requires_grad = True
+    ## set optimizer to make sure only classifier parameters are updated
+    optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
     total_class_loss = 0
     total_epi_error = 0
     correct = 0
@@ -28,7 +64,10 @@ def train(model, device, train_loader, optimizer, epoch, verbose=True):
         output, epi_error = model(data)
         class_loss = F.cross_entropy(output, target)
         var_loss = torch.mean(epi_error)
-        loss = class_loss + var_loss
+        if train_stage ==1:
+            loss = class_loss
+        elif train_stage ==2:
+            loss = var_loss
         loss.backward()
         optimizer.step()
         pred = output.argmax(dim=1, keepdim=True)
@@ -40,8 +79,8 @@ def train(model, device, train_loader, optimizer, epoch, verbose=True):
             print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)}'
                   f' ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item():.6f}')
     accuracy = 100. * correct / len(train_loader.dataset)
-    total_class_loss /= len(train_loader.dataset)
-    total_epi_error /= len(train_loader)
+    total_class_loss /= (batch_idx + 1)
+    total_epi_error /= (batch_idx + 1)
     
     return total_class_loss,accuracy, total_epi_error
     
@@ -51,7 +90,7 @@ def test(model, device, test_loader, verbose=True):
     correct = 0
     total_epi_error = 0
     with torch.no_grad():
-        for data, target in test_loader:
+        for batch_idx, (data, target) in enumerate(test_loader):
             data, target = data.to(device), target.to(device)
             output, epi_error = model(data)
             total_class_loss += F.cross_entropy(output, target).item()
@@ -59,9 +98,9 @@ def test(model, device, test_loader, verbose=True):
             correct += pred.eq(target.view_as(pred)).sum().item()
             total_epi_error += torch.mean(epi_error).item()
     
-    total_class_loss /= len(test_loader.dataset)
+    total_class_loss /= (batch_idx + 1)
     accuracy = 100. * correct / len(test_loader.dataset)
-    total_epi_error /= len(test_loader)
+    total_epi_error /= (batch_idx + 1)
     
     if verbose:
         print(f'\nTest set: Average loss: {total_class_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)}'
@@ -69,25 +108,36 @@ def test(model, device, test_loader, verbose=True):
     
     return total_class_loss, accuracy, total_epi_error
 
-def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64, save_results=False):
+def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64, ea=False, save_results=False):
     """Benchmark a single model with fixed number of epochs"""
     print(f"\n{'='*50}")
     print(f"Benchmarking {model_name.upper()}")
     print(f"{'='*50}")
+
     
     # Load data
-    train_dataset = datasets.MNIST(root = data_root, train=True, download=True,
-                                  transform=transforms.ToTensor())
-    train_dataset = torch.utils.data.Subset(train_dataset, range(100))  # Use a subset for faster benchmarking
+    if dataset_name == 'mnist':
+        train_dataset = datasets.MNIST(root = data_root, train=True, download=True,
+                                    transform=transforms.ToTensor())
+        test_dataset = datasets.MNIST(root =data_root, train=False, transform=transforms.ToTensor())
+    elif dataset_name == 'cifar10':
+        train_dataset = datasets.CIFAR10(root = data_root, train=True, download=True,
+                                    transform=transforms.ToTensor())
+        test_dataset = datasets.CIFAR10(root =data_root, train=False, transform=transforms.ToTensor())
+    elif dataset_name == 'cifar100':
+        train_dataset = datasets.CIFAR100(root = data_root, train=True, download=True,
+                                    transform=transforms.ToTensor())
+        test_dataset = datasets.CIFAR100(root =data_root, train=False, transform=transforms.ToTensor())
+
+
+    #train_dataset = torch.utils.data.Subset(train_dataset, range(100))  # Use a subset for faster benchmarking
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    
-    test_dataset = datasets.MNIST(root =data_root, train=False, transform=transforms.ToTensor())
     #test_dataset = torch.utils.data.Subset(test_dataset, range(1024))  # Use a subset for faster benchmarking
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
     # Create model
-    model = get_model(model_name, input_channels=1, output_channels=10).to(device)
-    optimizer = Adam(model.parameters(), lr=lr)
+    model = get_model(model_name,im_x=im_x, im_y=im_y, hidden_dim=hidden_dim, epi_channels=epi_channels, input_channels=input_channels, output_channels=output_channels, ea=ea).to(device)
+    #optimizer = Adam(model.parameters(), lr=lr)
     
     print(f"Model: {model_name}")
     print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -99,41 +149,70 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
     train_losses = []
     test_losses = []
     test_accuracies = []
-    
-    for epoch in range(1, epochs + 1):
-        epoch_start = time.time()
-        
-        train_loss, train_accuracy, train_epi_error = train(model, device, train_loader, optimizer, epoch, verbose=False)
-        test_loss, test_acc, test_epi_error = test(model, device, test_loader, verbose=False)
-        
-        train_losses.append(train_loss)
-        test_losses.append(test_loss)
-        test_accuracies.append(test_acc)
-        
-        epoch_time = time.time() - epoch_start
 
-        print(f"Epoch {epoch:2d}/{epochs}: Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%, Train Epi Error: {train_epi_error:.6f}, Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%, Test Epi Error: {test_epi_error:.6f}, Time: {epoch_time:.1f}s")
+    results_dir = Path("/home/jc14407/codes/modelConfidence/results")
+    if ea:
+        experiment_name = model_name+"_"+dataset_name
+    else:
+        experiment_name = "not_"+model_name+"_"+dataset_name
+        
+    ## setup logger
+    train_logger = Logger(
+        osp.join(results_dir, experiment_name+'_train.log'),
+        ['ep', 'train_class_loss','train_class_acc','train_epi_error','stage']
+    )
+    test_logger = Logger(
+        osp.join(results_dir, experiment_name+'_test.log'),
+        ['ep', 'test_class_loss','test_class_acc','test_epi_error','stage']
+    )
+
+    ### setup a two-stage training, the first stage, we train only classifier blocks, in the second stage, we only train the EA blocks
+    print("Starting training...")
     
-    total_time = time.time() - start_time
-    
+    for train_stage in [1, 2]:
+        ### freeze EA blocks
+        for epoch in range(1, epochs + 1):
+            epoch_start = time.time()
+            train_class_loss, train_class_acc, train_epi_error = train(train_stage, model, device, train_loader, epoch, verbose=False)
+            test_class_loss, test_class_acc, test_epi_error = test(model, device, test_loader, verbose=False)
+            train_losses.append(train_class_loss)
+            test_losses.append(test_class_loss)
+            test_accuracies.append(test_class_acc)
+            
+            epoch_time = time.time() - epoch_start
+
+            print(f"Epoch {epoch:2d}/{epochs}: Train Loss: {train_class_loss:.4f}, Train Accuracy: {train_class_acc:.2f}%, Train Epi Error: {train_epi_error:.6f}, Test Loss: {test_class_loss:.4f}, Test Acc: {test_class_acc:.2f}%, Test Epi Error: {test_epi_error:.6f}, Time: {epoch_time:.1f}s")
+            # Log epoch results
+            train_logger.log({
+                'ep': epoch,
+                'train_class_loss': train_class_loss,
+                'train_class_acc': train_class_acc,
+                'train_epi_error': train_epi_error,
+                'stage': train_stage
+            })
+            test_logger.log({
+                'ep': epoch,
+                'test_class_loss': test_class_loss,
+                'test_class_acc': test_class_acc,
+                'test_epi_error': test_epi_error,
+                'stage': train_stage 
+            })
+        total_time = time.time() - start_time
+        
     # Final results
     final_test_acc = test_accuracies[-1]
     print(f"\nFinal Results:")
     print(f"Test Accuracy: {final_test_acc:.2f}%")
     print(f"Training Time: {total_time:.2f}s")
     print(f"Time per Epoch: {total_time/epochs:.2f}s")
-    
+        
     # Save model
-    models_dir = Path("/scratch/jc14407/modelConfidence/checkpoints")
+    models_dir = Path("/home/jc14407/codes/modelConfidence/checkpoints")
     if not os.path.exists(models_dir):
         os.makedirs(models_dir)
-    # models_dir.mkdir(exist_ok=True)
-    #model_path = models_dir / f"mnist_{model_name}.pth"
-    #model_path = os.path.join(models_dir, f"mnist_{model_name}.pth")
-    model_path = os.path.join(models_dir, "mnist_"+model_name+".pth")
+    model_path = os.path.join(models_dir, dataset_name+"_"+model_name+".pth")
     torch.save(model.state_dict(), model_path)
     print(f"Model saved to: {model_path}")
-    # torch.save(model, model_path)
     
     # Prepare results
     results = {
@@ -152,13 +231,12 @@ def benchmark_model(model_name, device='cpu', epochs=10, lr=1e-3, batch_size=64,
         'model_path': str(model_path)
     }
     
-    if save_results:
-        results_dir = Path("results")
-        results_dir.mkdir(exist_ok=True)
-        results_path = results_dir / f"results_{model_name}.json"
-        with open(results_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        print(f"Results saved to: {results_path}")
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+    results_path = results_dir / f"results_{model_name}_{dataset_name}.json"
+    with open(results_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"Results saved to: {results_path}")
     
     return results
 
@@ -176,7 +254,8 @@ def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64):
     
     for model_name in MODELS.keys():
         try:
-            results = benchmark_model(model_name, device, epochs, lr, batch_size)
+            #results = benchmark_model(model_name, device, epochs, lr, batch_size)
+            results =  benchmark_model(model_name, actual_device, epochs, lr, batch_size, ea=ea, save_results=save_results)
             all_results[model_name] = results
         except Exception as e:
             print(f"Error benchmarking {model_name}: {e}")
@@ -206,9 +285,35 @@ def benchmark_all_models(device='cpu', epochs=10, lr=1e-3, batch_size=64):
     return all_results
 
 # Global configuration variables - modify these as needed
-model = 'eacnn'  # Model to benchmark: 'all' or one of ['cnn', 'mlp', 'lenet5', 'resnet', 'vgg', 'densenet', 'efficientnet', 'transformer','eafno']
-device = 'cuda'  # Device to use: 'cpu' or 'cuda'
+#model = 'eacnn'  # Model to benchmark: 'all' or one of ['cnn', 'mlp', 'lenet5', 'resnet', 'vgg', 'densenet', 'efficientnet', 'transformer','eafno']
+if torch.cuda.is_available():
+    device = 'cuda'
+else:
+    device = 'cpu'  # Device to use: 'cpu' or 'cuda'
 # Note: epochs is already defined above in the default hyperparameters section
+
+### Specify dataset
+dataset_name = 'cifar10' #'mnist'  
+if dataset_name == 'mnist':
+    im_x=28
+    im_y=28
+    input_channels = 1
+    output_channels = 10
+    epi_channels=10
+elif dataset_name == 'cifar10':
+    im_x=32
+    im_y=32
+    input_channels = 3
+    output_channels = 10
+    epi_channels=10
+elif dataset_name == 'cifar100':
+    im_x=32
+    im_y=32
+    input_channels = 3
+    output_channels = 100
+    epi_channels=100
+hidden_dim=64
+save_results=True
 
 def main():
     # Check device availability
@@ -218,10 +323,12 @@ def main():
     else:
         actual_device = device
     
-    if model == 'all':
-        benchmark_all_models(actual_device, epochs, lr, batch_size)
-    else:
-        benchmark_model(model, actual_device, epochs, lr, batch_size)
+    # if model == 'all':
+    #     benchmark_all_models(actual_device, epochs, lr, batch_size)
+    # else:
+    model = 'earesnet50'  # Specify the model to benchmark
+    ea = True
+    benchmark_model(model, actual_device, epochs, lr, batch_size, ea=ea, save_results=save_results)
 
 if __name__ == '__main__':
     main()
