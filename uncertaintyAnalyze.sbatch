@@ -3,10 +3,8 @@
 #SBATCH --job-name=modelConfidence
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
-#SBATCH --constraint="l40s|h200"
-#SBATCH --time=5:00:00
-#SBATCH --mem=30GB
+#SBATCH --time=1:00:00
+#SBATCH --mem=10GB
 #SBATCH --mail-type=END
 #SBATCH --mail-user=jc14407@nyu.edu
 #SBATCH --output=slurm_%j.out
@@ -22,7 +20,7 @@ source $HOME/.bashrc
 conda activate /scratch/jc14407/.conda/env/torch2
 export MPLCONFIGDIR=/scratch/jc14407/.config/matplotlib
 
-python main.py
+python uncertainty_analysis.py
 
 
 
